@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import os
+import re
 import secrets
 import socket
 import time
@@ -16,11 +17,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel, Field, HttpUrl, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .engine import classify, extract, fingerprint, rank_documents, short_summary
+from .engine import classify, extract, fingerprint, rank_documents, relevant_passage, short_summary
 from .crossref import search as crossref_search
 from .storage import ApiKey, CollectionJob, Document, DocumentVersion, RequestLog, SessionLocal, Source, init_db, now_utc
 
@@ -386,10 +387,37 @@ async def collect_one(data: CollectInput, db: Session = Depends(get_db), _: ApiK
 
 
 def search_payload(data: QueryInput, db: Session):
-    docs = db.scalars(select(Document).where(Document.status == "processed")).all()
-    ranked = rank_documents(data.query, docs, data.max_results)
+    terms = list(dict.fromkeys(re.findall(r"[\w-]{2,}", data.query.lower())))[:12]
+    if not terms:
+        candidates = []
+    else:
+        conditions = []
+        for term in terms:
+            pattern = f"%{term}%"
+            conditions.extend((Document.title.ilike(pattern), Document.summary.ilike(pattern), Document.content.ilike(pattern)))
+        # Bound candidate materialization so large corpora do not load every document into API memory.
+        candidates = db.execute(select(Document.id, Document.title, Document.summary,
+                                       func.substr(Document.content, 1, 5000).label("content"), Document.categories)
+                                .where(Document.status == "processed", or_(*conditions))
+                                .order_by(Document.collected_at.desc()).limit(500)).all()
+    ranked = rank_documents(data.query, candidates, data.max_results)
+    full_documents = {doc.id: doc for doc in db.scalars(select(Document).where(Document.id.in_([doc.id for doc, _ in ranked]))).all()} if ranked else {}
+    results = []
+    for candidate, score in ranked:
+        doc = full_documents.get(candidate.id)
+        if doc:
+            result = json_doc(doc, score, include_content=False)
+            result["content"] = relevant_passage(doc.content, data.query)
+            results.append(result)
+    for result in results:
+        if not data.include_sources:
+            result.pop("source_url", None)
+            result.pop("publisher", None)
+        if not data.include_metadata:
+            for key in ("published_at", "collected_at", "verified_at", "categories", "quality", "status"):
+                result.pop(key, None)
     return {"success": True, "request_id": f"req_{uuid.uuid4().hex}", "query": data.query,
-            "results": [json_doc(doc, score, include_content=True) for doc, score in ranked],
+            "results": results,
             "metadata": {"retrieval_mode": "keyword" if data.search_mode == "semantic" else data.search_mode,
                          "results_count": len(ranked), "freshness": "stored", "knowledge_version": "1.0",
                          "semantic_search": "not configured" if data.search_mode in {"hybrid", "semantic"} else None}}

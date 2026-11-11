@@ -91,6 +91,22 @@ def short_summary(content: str, limit: int = 420) -> str:
     return content[:end + 1] if end > limit // 2 else content[:max(0, limit - 1)].rstrip() + "…"
 
 
+def relevant_passage(content: str, query: str, limit: int = 1600) -> str:
+    """Return a bounded evidence passage near a query term."""
+    text = " ".join((content or "").split())
+    terms = re.findall(r"[\w-]{2,}", query.lower())
+    lowered = text.lower()
+    positions = [lowered.find(term) for term in terms]
+    positions = [position for position in positions if position >= 0]
+    if not positions or len(text) <= limit:
+        return text[:limit]
+    center = min(positions)
+    start = max(0, center - limit // 4)
+    end = min(len(text), start + limit)
+    passage = text[start:end]
+    return ("…" if start else "") + passage + ("…" if end < len(text) else "")
+
+
 def rank_documents(query: str, docs: list, max_results: int = 10) -> list[tuple[object, float]]:
     terms = {w for w in re.findall(r"[\w-]{2,}", query.lower()) if w not in {"what", "when", "where", "which", "that", "this", "with", "from", "about", "have"}}
     ranked = []

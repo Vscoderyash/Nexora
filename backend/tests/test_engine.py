@@ -1,7 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
-from app.engine import classify, extract, fingerprint, rank_documents, short_summary
+from app.engine import classify, extract, fingerprint, rank_documents, relevant_passage, short_summary
 
 
 class ProcessingTests(unittest.TestCase):
@@ -32,6 +32,12 @@ class ProcessingTests(unittest.TestCase):
     def test_summary_is_bounded(self):
         summary = short_summary("Evidence. " + "long text " * 100, limit=64)
         self.assertLessEqual(len(summary), 64)
+
+    def test_retrieval_passage_is_bounded_and_centers_matching_evidence(self):
+        content = "background " * 100 + "quantum result " + "conclusion " * 100
+        passage = relevant_passage(content, "quantum", limit=100)
+        self.assertLessEqual(len(passage), 102)
+        self.assertIn("quantum", passage)
 
 
 if __name__ == "__main__":
