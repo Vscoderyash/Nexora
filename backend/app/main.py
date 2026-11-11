@@ -16,7 +16,6 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 from sqlalchemy import func, select
@@ -270,7 +269,7 @@ def live():
 
 @app.get("/", include_in_schema=False)
 def console():
-    return FileResponse(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "index.html"))
+    return FileResponse(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "index.html")))
 
 
 @app.get("/v1/system/status")
@@ -484,11 +483,6 @@ def monitoring(db: Session = Depends(get_db), _: ApiKey = Depends(require("admin
     avg = db.scalar(select(func.avg(RequestLog.latency_ms)))
     count = db.scalar(select(func.count()).select_from(RequestLog)) or 0
     return {"api_requests": count, "average_latency_ms": round(avg, 1) if avg else None, "database": "connected", "semantic_index": "not configured", "queue": "not configured"}
-
-
-frontend_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend"))
-if os.path.isdir(frontend_path):
-    app.mount("/assets", StaticFiles(directory=frontend_path), name="assets")
 
 
 def private_openapi():

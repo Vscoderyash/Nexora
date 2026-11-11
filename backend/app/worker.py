@@ -6,9 +6,9 @@ import os
 import uuid
 from datetime import timedelta
 
-import feedparser
 from sqlalchemy import select
 
+from .feeds import parse_feed
 from .main import fetch_public, store_document
 from .storage import CollectionJob, SessionLocal, Source, init_db, now_utc
 
@@ -37,16 +37,16 @@ async def run_once() -> int:
             db.commit()
             try:
                 raw, content_type = await fetch_public(source.url)
-                feed = feedparser.parse(raw)
-                if not feed.entries:
+                feed = parse_feed(raw)
+                if not feed["entries"]:
                     raise ValueError("Feed contains no entries or has an unsupported format")
-                job.discovered = min(len(feed.entries), 200)
-                for item in feed.entries[:200]:
+                job.discovered = min(len(feed["entries"]), 30)
+                for item in feed["entries"][:30]:
                     url = str(item.get("link", ""))[:2048]
                     if not url.startswith(("http://", "https://")):
                         continue
                     title = str(item.get("title", "Untitled"))[:500]
-                    summary = str(item.get("summary", item.get("description", "")))[:100000]
+                    summary = str(item.get("summary", ""))[:100000]
                     content = summary
                     if len(summary) < 120:
                         try:
@@ -59,16 +59,9 @@ async def run_once() -> int:
                                 content = page_text
                         except Exception:
                             pass  # Feed-provided text remains usable evidence with its feed URL.
-                    published = None
+                    published = item.get("published_at")
                     try:
-                        parsed = item.get("published_parsed") or item.get("updated_parsed")
-                        if parsed:
-                            from datetime import datetime, timezone
-                            published = datetime(*parsed[:6], tzinfo=timezone.utc)
-                    except (TypeError, ValueError):
-                        published = None
-                    try:
-                        _, changed = store_document(db, source, url, title, content, str(feed.feed.get("title", source.name)), published)
+                        _, changed = store_document(db, source, url, title, content, str(feed.get("title") or source.name), published)
                         job.collected += int(changed)
                     except ValueError:
                         continue

@@ -69,10 +69,14 @@ See [.env.example](.env.example). Never commit `.env` or API keys. Use TLS at th
 - `backend/app/engine.py`: extraction, fingerprinting, conservative classification, and ranked keyword retrieval.
 - `backend/app/main.py`: versioned private API and admin endpoints.
 - `backend/app/worker.py`: independent restart-safe polling worker for RSS sources.
-- `frontend/index.html`: responsive admin console served by the API; every displayed count is read from backend data.
+- `index.html`: root-level GitHub Pages entry page; the API serves this same file and reads counts from backend endpoints.
 - `docker-compose.yml`: API and persistent volume for a local container deployment.
 
 Semantic vectors, provider-backed summaries, key rotation UI, Redis/Celery queues, object storage, graph visualization, and production migrations are planned extensions; the current interface reports optional integrations as unavailable instead of simulating them. The database schema is created at startup for local development. Production deployments should add Alembic migrations, managed PostgreSQL backups, TLS, secret management, and a durable queue before scaling collection.
+
+## GitHub Pages
+
+The dashboard entry point is at the repository root as `index.html`. Enable GitHub Pages for the `main` branch and repository root. The static page can be hosted separately from the API: set `NEXORA_CORS_ORIGINS` on the API server to the exact Pages origin (typically `https://vscoderyash.github.io`) and enter the API server URL plus a private API key in the console connection panel. Serve the API over HTTPS and issue a read-only key for Pages use; admin operations require an admin key. The page keeps the key for the current browser tab only.
 
 ## Focused checks
 
