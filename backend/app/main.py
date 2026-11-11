@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import hmac
 import ipaddress
 import os
 import secrets
@@ -11,9 +10,8 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse
 
-import feedparser
 import httpx
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.openapi.utils import get_openapi
@@ -77,7 +75,7 @@ def get_db():
         db.close()
 
 
-def authenticated(authorization: str | None = Header(default=None), request: Request = None, db: Session = Depends(get_db)) -> ApiKey:
+def authenticated(request: Request, authorization: str | None = Header(default=None), db: Session = Depends(get_db)) -> ApiKey:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(401, "Bearer API key required", headers={"WWW-Authenticate": "Bearer"})
     token = authorization[7:].strip()
@@ -96,8 +94,7 @@ def authenticated(authorization: str | None = Header(default=None), request: Req
     key.last_used_at = now_utc()
     key.request_count += 1
     db.commit()
-    if request:
-        request.state.key_id = key.id
+    request.state.key_id = key.id
     return key
 
 
