@@ -21,6 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .engine import classify, extract, fingerprint, rank_documents, short_summary
+from .crossref import search as crossref_search
 from .storage import ApiKey, CollectionJob, Document, DocumentVersion, RequestLog, SessionLocal, Source, init_db, now_utc
 
 APP_NAME = os.getenv("NEXORA_NAME", "NEXORA")
@@ -128,6 +129,11 @@ class CollectInput(BaseModel):
     url: HttpUrl
     source_name: str = Field(default="Manual research", max_length=240)
     license_notes: str = Field(default="User-authorized public source", max_length=2000)
+
+
+class ResearchInput(BaseModel):
+    query: str = Field(min_length=2, max_length=1000)
+    max_results: int = Field(default=5, ge=1, le=10)
 
 
 class KeyInput(BaseModel):
@@ -437,8 +443,45 @@ def answer(data: QueryInput, db: Session = Depends(get_db), _: ApiKey = Depends(
 
 
 @app.post("/v1/knowledge/research")
-async def research(data: CollectInput, db: Session = Depends(get_db), _: ApiKey = Depends(require("write"))):
-    return await collect_one(data, db, _)
+async def research(data: ResearchInput, db: Session = Depends(get_db), _: ApiKey = Depends(require("write"))):
+    source = db.scalar(select(Source).where(Source.url == "https://api.crossref.org/works"))
+    if not source:
+        source = Source(id=str(uuid.uuid4()), name="Crossref metadata API", url="https://api.crossref.org/works", kind="research",
+                        enabled=False, license_notes="Public scholarly metadata API; item licenses and full text rights vary.", interval_seconds=86400)
+        db.add(source)
+        db.flush()
+    job = CollectionJob(id=str(uuid.uuid4()), source_id=source.id, state="running", discovered=0, collected=0)
+    db.add(job)
+    db.commit()
+    try:
+        records = await crossref_search(data.query, data.max_results, FETCH_TIMEOUT)
+        job.discovered = len(records)
+        documents = []
+        for record in records:
+            doc, changed = store_document(db, source, record["url"], record["title"], record["content"], record["publisher"], record["published_at"])
+            job.collected += int(changed)
+            documents.append(doc)
+        job.state = "completed"
+        job.finished_at = now_utc()
+        source.last_checked_at = source.last_success_at = now_utc()
+        source.failure_count = 0
+        db.commit()
+        return {"success": True, "request_id": f"req_{uuid.uuid4().hex}", "query": data.query,
+                "provider": "Crossref public metadata", "results": [json_doc(doc, include_content=True) for doc in documents],
+                "metadata": {"discovered": len(records), "stored_or_updated": job.collected, "full_text": False,
+                             "source_content": "bibliographic metadata and abstracts where supplied by the publisher"}}
+    except Exception as exc:
+        db.rollback()
+        failed = db.get(CollectionJob, job.id)
+        if failed:
+            failed.state = "failed"
+            failed.error = str(exc)[:500]
+            failed.finished_at = now_utc()
+            source_row = db.get(Source, source.id)
+            if source_row:
+                source_row.failure_count += 1
+            db.commit()
+        raise HTTPException(502, "Bounded research failed; inspect the collection job log")
 
 
 @app.get("/v1/account/usage")

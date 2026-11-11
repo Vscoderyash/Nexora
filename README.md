@@ -57,7 +57,7 @@ Authorization: Bearer <key>
 {"query":"What is ...?","search_mode":"hybrid","max_results":10,"include_sources":true}
 ```
 
-The service returns passages and source metadata, not invented answers. `/v1/knowledge/answer` clearly reports that generation is unconfigured until an administrator installs and configures a provider adapter. `/v1/knowledge/research` performs bounded permitted collection and returns stored evidence.
+The service returns passages and source metadata, not invented answers. `/v1/knowledge/answer` clearly reports that generation is unconfigured until an administrator installs and configures a provider adapter. `/v1/knowledge/research` accepts a question and up to ten results, uses Crossref's public bibliographic metadata API, and stores DOI-linked records and publisher abstracts when supplied. It does not claim to download publisher full text.
 
 ## Configuration
 
