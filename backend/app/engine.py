@@ -75,12 +75,46 @@ TAXONOMY = {
     "Politics and government": {"government", "policy", "election", "minister", "regulation"},
 }
 
+ENTITY_TERMS = {
+    "OpenAI": ("organization", 0.95), "Anthropic": ("organization", 0.95),
+    "Google": ("organization", 0.95), "Microsoft": ("organization", 0.95),
+    "Amazon": ("organization", 0.95), "Apple": ("organization", 0.95),
+    "Meta": ("organization", 0.9), "NVIDIA": ("organization", 0.95),
+    "IBM": ("organization", 0.95), "NASA": ("organization", 0.95),
+    "ChatGPT": ("technology", 0.95), "GPT-4": ("technology", 0.95),
+    "GPT-5": ("technology", 0.95), "Claude": ("technology", 0.85),
+    "Gemini": ("technology", 0.85), "PyTorch": ("technology", 0.95),
+    "TensorFlow": ("technology", 0.95), "Kubernetes": ("technology", 0.95),
+    "PostgreSQL": ("technology", 0.95), "Redis": ("technology", 0.9),
+    "machine learning": ("concept", 0.9), "artificial intelligence": ("concept", 0.9),
+    "quantum computing": ("concept", 0.9), "large language model": ("concept", 0.9),
+    "neural network": ("concept", 0.85), "climate change": ("concept", 0.85),
+}
+ORG_SUFFIX = re.compile(r"\b(?:[A-Z][\w&'.-]*\s+){1,3}(?:University|Institute|Laboratories|Labs|Foundation|Corporation|Corp\.?|Company|Inc\.?|Agency|Ministry|Department|Council|Association|Committee|Bank|Group)\b")
+
 
 def classify(title: str, content: str) -> list[str]:
     text = f"{title} {content}".lower()
     ranked = [(sum(1 for term in terms if term in text), category) for category, terms in TAXONOMY.items()]
     categories = [category for count, category in sorted(ranked, reverse=True) if count]
     return categories[:4] or ["Other"]
+
+
+def extract_entities(text: str) -> list[dict]:
+    """Extract conservative entity candidates and preserve the matching evidence."""
+    entities: dict[tuple[str, str], dict] = {}
+    for term, (kind, confidence) in ENTITY_TERMS.items():
+        for match in re.finditer(r"(?<!\w)" + re.escape(term) + r"(?!\w)", text, re.IGNORECASE):
+            name = match.group(0).strip()
+            canonical = term if kind in {"organization", "technology"} else term.title()
+            entities[(canonical.casefold(), kind)] = {"name": canonical, "kind": kind, "confidence": confidence, "evidence": match.group(0)}
+    for match in ORG_SUFFIX.finditer(text):
+        name = " ".join(match.group(0).split()).strip(" ,.;:")
+        if len(name) < 5:
+            continue
+        key = (name.casefold(), "organization")
+        entities.setdefault(key, {"name": name, "kind": "organization", "confidence": 0.78, "evidence": match.group(0)})
+    return list(entities.values())
 
 
 def short_summary(content: str, limit: int = 420) -> str:

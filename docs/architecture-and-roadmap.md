@@ -34,6 +34,7 @@ All versioned API and admin routes require a bearer key. Keys are generated with
 - Private FastAPI service, OpenAPI bearer scheme, API key create/list/revoke, usage view, rate limit, and audit records.
 - Database-backed sources, documents, collection jobs, duplicate provenance, and historical content snapshots.
 - Bounded Crossref metadata research by question, with DOI provenance and a separate polling RSS/Atom worker.
+- Rule-based organization and technology mentions linked to documents with quoted evidence and rule confidence; a bounded endpoint reindexes existing documents.
 - HTML/text extraction, whitespace normalization, exact fingerprints, conservative multi-label taxonomy, short extractive summaries, keyword retrieval, and source citations.
 - Responsive dark/light console with live database statistics, source controls, explorer, query playground, key management, collection history, and service status.
 - Docker Compose single-node deployment, environment example, and focused processing tests.
@@ -43,8 +44,8 @@ All versioned API and admin routes require a bearer key. Keys are generated with
 1. Add Alembic migrations and production-grade PostgreSQL deployment/backup guidance.
 2. Move polling and processing to Redis/Celery with bounded concurrency, exponential retry, and separate worker pools.
 3. Add more discovery connectors (government datasets and licensed news/search APIs) and source health checks.
-4. Add typed entities and relationships, model-backed enrichment adapters, vector embeddings, pgvector hybrid ranking, and index versioning.
+4. Extend entity coverage and add provider-backed enrichment, vector embeddings, pgvector hybrid ranking, and index versioning.
 5. Add configurable provider-secret storage, supported LLM adapters, citation validation, conflict reporting, and cost tracking.
 6. Expand operational views, source correction/retraction, administrative authentication hardening, and production monitoring.
 
-The current keyword retriever scans processed records in the relational database. It does not claim semantic retrieval, model-generated answers, entity graph support, continuous Google discovery, Redis queues, or object storage until those integrations are implemented and configured.
+The current keyword retriever scans a bounded candidate set from the relational database. It does not claim semantic retrieval, model-generated answers, broad named-entity coverage, continuous Google discovery, Redis queues, or object storage until those integrations are implemented and configured.

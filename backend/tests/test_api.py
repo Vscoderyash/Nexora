@@ -34,6 +34,8 @@ class PrivateApiTests(unittest.TestCase):
                                     publisher="Example Institute", content="Quantum computing hardware research advances with stable qubits.",
                                     summary="Research on quantum computing hardware and qubit stability.", fingerprint="a" * 64,
                                     categories=["Science"], quality={"source_reliability": "unrated"}, status="processed"))
+            db.add(storage.Entity(id="entity-1", name="OpenAI", normalized_name="openai", kind="organization"))
+            db.add(storage.DocumentEntity(document_id="doc-1", entity_id="entity-1", confidence=0.95, evidence="OpenAI"))
             db.commit()
 
     @classmethod
@@ -61,9 +63,27 @@ class PrivateApiTests(unittest.TestCase):
         self.assertEqual(document.status_code, 200)
         self.assertIn("Source", document.json()["publisher"])
 
-    def test_read_only_key_cannot_use_admin_route(self):
+    def test_read_only_key_can_view_overview_but_cannot_manage_sources(self):
         response = self.client.get("/v1/admin/overview", headers={"Authorization": f"Bearer {self.reader_token}"})
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 200, response.text)
+        restricted = self.client.get("/v1/admin/sources", headers={"Authorization": f"Bearer {self.reader_token}"})
+        self.assertEqual(restricted.status_code, 403)
+
+    def test_entity_retrieval_returns_source_linked_documents(self):
+        headers = {"Authorization": f"Bearer {self.reader_token}"}
+        response = self.client.get("/v1/knowledge/entities/entity-1", headers=headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["documents"][0]["document_id"], "doc-1")
+        self.assertEqual(response.json()["documents"][0]["evidence"], "OpenAI")
+
+    def test_admin_can_reindex_documents_into_the_entity_graph(self):
+        headers = {"Authorization": f"Bearer {self.admin_token}"}
+        response = self.client.post("/v1/admin/entities/reindex?limit=20", headers=headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertGreaterEqual(response.json()["entity_mentions"], 1)
+        graph = self.client.get("/v1/admin/graph", headers=headers)
+        self.assertEqual(graph.status_code, 200)
+        self.assertTrue(any(node["type"] == "entity" for node in graph.json()["nodes"]))
 
     def test_revoked_key_is_denied(self):
         headers = {"Authorization": f"Bearer {self.admin_token}"}

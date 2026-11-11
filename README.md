@@ -66,13 +66,13 @@ See [.env.example](.env.example). Never commit `.env` or API keys. Use TLS at th
 ## Architecture and current boundaries
 
 - `backend/app/storage.py`: relational records and database session boundary (SQLite by default; PostgreSQL supported through `DATABASE_URL`).
-- `backend/app/engine.py`: extraction, fingerprinting, conservative classification, and ranked keyword retrieval.
+- `backend/app/engine.py`: extraction, fingerprinting, conservative classification, evidence passages, ranked keyword retrieval, and rule-based entity candidates.
 - `backend/app/main.py`: versioned private API and admin endpoints.
 - `backend/app/worker.py`: independent restart-safe polling worker for RSS sources.
 - `index.html`: root-level GitHub Pages entry page; the API serves this same file and reads counts from backend endpoints.
 - `docker-compose.yml`: API and persistent volume for a local container deployment.
 
-Semantic vectors, provider-backed summaries, key rotation UI, Redis/Celery queues, object storage, graph visualization, and production migrations are planned extensions; the current interface reports optional integrations as unavailable instead of simulating them. The database schema is created at startup for local development. Production deployments should add Alembic migrations, managed PostgreSQL backups, TLS, secret management, and a durable queue before scaling collection.
+Semantic vectors, provider-backed summaries, key rotation UI, Redis/Celery queues, object storage, and production migrations are planned extensions; the current interface reports optional integrations as unavailable instead of simulating them. Entity graph extraction currently uses a small explicit vocabulary and organization-name rules; every edge retains its evidence text and rule confidence, and it can be rebuilt in bounded batches from the graph page. The database schema is created at startup for local development. Production deployments should add Alembic migrations, managed PostgreSQL backups, TLS, secret management, and a durable queue before scaling collection.
 
 ## GitHub Pages
 

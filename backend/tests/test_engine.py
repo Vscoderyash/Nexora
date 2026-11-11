@@ -1,7 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
-from app.engine import classify, extract, fingerprint, rank_documents, relevant_passage, short_summary
+from app.engine import classify, extract, extract_entities, fingerprint, rank_documents, relevant_passage, short_summary
 
 
 class ProcessingTests(unittest.TestCase):
@@ -38,6 +38,15 @@ class ProcessingTests(unittest.TestCase):
         passage = relevant_passage(content, "quantum", limit=100)
         self.assertLessEqual(len(passage), 102)
         self.assertIn("quantum", passage)
+
+    def test_entity_candidates_retain_evidence_and_rule_confidence(self):
+        entities = extract_entities("OpenAI published a ChatGPT report for Example University.")
+        by_name = {entity["name"]: entity for entity in entities}
+        self.assertEqual(by_name["OpenAI"]["kind"], "organization")
+        self.assertEqual(by_name["ChatGPT"]["kind"], "technology")
+        self.assertIn("Example University", by_name)
+        self.assertIn("confidence", by_name["OpenAI"])
+        self.assertTrue(by_name["OpenAI"]["evidence"])
 
 
 if __name__ == "__main__":

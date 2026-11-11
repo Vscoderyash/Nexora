@@ -21,9 +21,9 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .engine import classify, extract, fingerprint, rank_documents, relevant_passage, short_summary
+from .engine import classify, extract, extract_entities, fingerprint, rank_documents, relevant_passage, short_summary
 from .crossref import search as crossref_search
-from .storage import ApiKey, CollectionJob, Document, DocumentVersion, RequestLog, SessionLocal, Source, init_db, now_utc
+from .storage import ApiKey, CollectionJob, Document, DocumentEntity, DocumentVersion, Entity, RequestLog, SessionLocal, Source, init_db, now_utc
 
 APP_NAME = os.getenv("NEXORA_NAME", "NEXORA")
 MAX_BYTES = int(os.getenv("NEXORA_MAX_FETCH_BYTES", "2000000"))
@@ -245,6 +245,7 @@ def store_document(db: Session, source: Source, url: str, title: str, content: s
         existing.verified_at = now_utc()
         existing.status = "processed"
         existing.duplicate_of = None
+        index_entities(db, existing)
         db.flush()
         return existing, True
     duplicate = db.scalar(select(Document).where(Document.fingerprint == fp))
@@ -263,7 +264,20 @@ def store_document(db: Session, source: Source, url: str, title: str, content: s
                    quality={"extraction": "complete", "source_reliability": "unrated", "evidence": "source URL retained"}, status="processed")
     db.add(doc)
     db.flush()
+    index_entities(db, doc)
     return doc, True
+
+
+def index_entities(db: Session, doc: Document) -> None:
+    db.query(DocumentEntity).filter(DocumentEntity.document_id == doc.id).delete(synchronize_session=False)
+    for candidate in extract_entities(f"{doc.title}\n{doc.content}"):
+        normalized = candidate["name"].casefold()
+        entity = db.scalar(select(Entity).where(Entity.normalized_name == normalized, Entity.kind == candidate["kind"]))
+        if entity is None:
+            entity = Entity(id=str(uuid.uuid4()), name=candidate["name"], normalized_name=normalized, kind=candidate["kind"])
+            db.add(entity)
+            db.flush()
+        db.add(DocumentEntity(document_id=doc.id, entity_id=entity.id, confidence=candidate["confidence"], evidence=candidate["evidence"][:400]))
 
 
 @app.get("/health/live", include_in_schema=False)
@@ -280,11 +294,11 @@ def console():
 def system_status(db: Session = Depends(get_db), _: ApiKey = Depends(require("read"))):
     db.execute(select(1))
     return {"name": APP_NAME, "status": "operational", "database": "connected", "storage": "sqlite" if str(db.bind.url).startswith("sqlite") else "postgresql",
-            "workers": {"rss_collector": "separate process; run python -m app.worker", "redis_queue": "not configured"}, "features": {"keyword_search": "available", "semantic_search": "not configured", "answer_generation": "not configured"}, "checked_at": now_utc().isoformat()}
+            "workers": {"rss_collector": "separate process; run python -m app.worker", "redis_queue": "not configured"}, "features": {"keyword_search": "available", "entity_graph": "available; rule-based candidates", "semantic_search": "not configured", "answer_generation": "not configured"}, "checked_at": now_utc().isoformat()}
 
 
 @app.get("/v1/admin/overview")
-def overview(db: Session = Depends(get_db), _: ApiKey = Depends(require("admin"))):
+def overview(db: Session = Depends(get_db), _: ApiKey = Depends(require("read"))):
     docs = db.scalar(select(func.count()).select_from(Document)) or 0
     processed = db.scalar(select(func.count()).select_from(Document).where(Document.status == "processed")) or 0
     sources = db.scalar(select(func.count()).select_from(Source)) or 0
@@ -447,8 +461,54 @@ def get_document(document_id: str, db: Session = Depends(get_db), _: ApiKey = De
 
 
 @app.get("/v1/knowledge/entities/{entity_id}")
-def get_entity(entity_id: str, _: ApiKey = Depends(require("read"))):
-    raise HTTPException(404, "Entity graph is not configured in this release")
+def get_entity(entity_id: str, db: Session = Depends(get_db), _: ApiKey = Depends(require("read"))):
+    entity = db.get(Entity, entity_id)
+    if not entity:
+        raise HTTPException(404, "Entity not found")
+    rows = db.execute(select(Document, DocumentEntity).join(DocumentEntity, Document.id == DocumentEntity.document_id)
+                      .where(DocumentEntity.entity_id == entity.id).order_by(Document.collected_at.desc()).limit(100)).all()
+    return {"id": entity.id, "name": entity.name, "kind": entity.kind,
+            "documents": [{**json_doc(doc, include_content=False), "mention_confidence": mention.confidence, "evidence": mention.evidence} for doc, mention in rows]}
+
+
+@app.get("/v1/admin/entities")
+def list_entities(q: str = "", limit: int = Query(100, ge=1, le=500), db: Session = Depends(get_db), _: ApiKey = Depends(require("admin"))):
+    query = select(Entity).order_by(Entity.name).limit(limit)
+    if q:
+        query = select(Entity).where(Entity.name.ilike(f"%{q[:120]}%"),).order_by(Entity.name).limit(limit)
+    entities = db.scalars(query).all()
+    return [{"id": entity.id, "name": entity.name, "kind": entity.kind,
+             "document_count": db.scalar(select(func.count()).select_from(DocumentEntity).where(DocumentEntity.entity_id == entity.id)) or 0}
+            for entity in entities]
+
+
+@app.post("/v1/admin/entities/reindex")
+def reindex_entities(limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0),
+                     db: Session = Depends(get_db), _: ApiKey = Depends(require("write"))):
+    docs = db.scalars(select(Document).where(Document.status == "processed").order_by(Document.collected_at.desc()).offset(offset).limit(limit)).all()
+    for doc in docs:
+        index_entities(db, doc)
+    db.commit()
+    mentions = db.scalar(select(func.count()).select_from(DocumentEntity).where(DocumentEntity.document_id.in_([d.id for d in docs]))) if docs else 0
+    total = db.scalar(select(func.count()).select_from(Document).where(Document.status == "processed")) or 0
+    return {"processed_documents": len(docs), "entity_mentions": mentions or 0, "next_offset": offset + len(docs) if offset + len(docs) < total else None, "documents_total": total}
+
+
+@app.get("/v1/admin/graph")
+def graph_data(limit: int = Query(100, ge=1, le=500), db: Session = Depends(get_db), _: ApiKey = Depends(require("admin"))):
+    mentions = db.execute(select(DocumentEntity, Entity, Document)
+                           .join(Entity, Entity.id == DocumentEntity.entity_id)
+                           .join(Document, Document.id == DocumentEntity.document_id)
+                           .order_by(Document.collected_at.desc()).limit(500)).all()
+    entities, documents, edges = {}, {}, []
+    for mention, entity, doc in mentions:
+        entities[entity.id] = {"id": entity.id, "label": entity.name, "kind": entity.kind, "type": "entity"}
+        documents[doc.id] = {"id": doc.id, "label": doc.title, "kind": "document", "type": "document", "source_url": doc.url}
+        edges.append({"source": entity.id, "target": doc.id, "confidence": mention.confidence, "evidence": mention.evidence})
+    nodes = list(entities.values())[:limit] + list(documents.values())[:limit]
+    visible = {node["id"] for node in nodes}
+    edges = [edge for edge in edges if edge["source"] in visible and edge["target"] in visible]
+    return {"nodes": nodes, "edges": edges}
 
 
 @app.get("/v1/knowledge/sources/{source_id}")
