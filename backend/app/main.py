@@ -38,7 +38,10 @@ app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=Fals
 
 @app.on_event("startup")
 def startup():
-    init_db()
+    # Local development keeps the zero-setup SQLite experience. Deployed
+    # environments should apply versioned migrations before starting workers.
+    if os.getenv("NEXORA_ENV", "development").lower() != "production":
+        init_db()
     bootstrap = os.getenv("NEXORA_BOOTSTRAP_KEY", "").strip()
     if bootstrap:
         digest = hashlib.sha256(bootstrap.encode()).hexdigest()

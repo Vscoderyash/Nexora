@@ -63,6 +63,10 @@ The service returns passages and source metadata, not invented answers. `/v1/kno
 
 See [.env.example](.env.example). Never commit `.env` or API keys. Use TLS at the reverse proxy in deployed environments. Restrict CORS and bind the service to a trusted network. The development console uses the same bearer key as the API.
 
+## Database migrations
+
+Local development creates missing tables automatically. For a deployment, set `NEXORA_ENV=production`, configure `DATABASE_URL`, then run `cd backend` and `alembic upgrade head` as a release step before starting the API or collector. Production startup intentionally does not create tables; migration failures should stop the release. To preview SQL without connecting, use `alembic upgrade head --sql` from `backend/`.
+
 ## Architecture and current boundaries
 
 - `backend/app/storage.py`: relational records and database session boundary (SQLite by default; PostgreSQL supported through `DATABASE_URL`).
@@ -72,7 +76,7 @@ See [.env.example](.env.example). Never commit `.env` or API keys. Use TLS at th
 - `index.html`: root-level GitHub Pages entry page; the API serves this same file and reads counts from backend endpoints.
 - `docker-compose.yml`: API and persistent volume for a local container deployment.
 
-Semantic vectors, provider-backed summaries, key rotation UI, Redis/Celery queues, object storage, and production migrations are planned extensions; the current interface reports optional integrations as unavailable instead of simulating them. Entity graph extraction currently uses a small explicit vocabulary and organization-name rules; every edge retains its evidence text and rule confidence, and it can be rebuilt in bounded batches from the graph page. The database schema is created at startup for local development. Production deployments should add Alembic migrations, managed PostgreSQL backups, TLS, secret management, and a durable queue before scaling collection.
+Semantic vectors, provider-backed summaries, key rotation UI, Redis/Celery queues, object storage, and managed production operations are planned extensions; the current interface reports optional integrations as unavailable instead of simulating them. Entity graph extraction currently uses a small explicit vocabulary and organization-name rules; every edge retains its evidence text and rule confidence, and it can be rebuilt in bounded batches from the graph page. The database schema is created at startup for local development and versioned with Alembic for deployments. Production deployments still need managed PostgreSQL backups, TLS, secret management, and a durable queue before scaling collection.
 
 ## GitHub Pages
 

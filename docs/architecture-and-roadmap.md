@@ -41,7 +41,7 @@ All versioned API and admin routes require a bearer key. Keys are generated with
 
 ### Next stages
 
-1. Add Alembic migrations and production-grade PostgreSQL deployment/backup guidance.
+1. Add production-grade PostgreSQL deployment and backup guidance.
 2. Move polling and processing to Redis/Celery with bounded concurrency, exponential retry, and separate worker pools.
 3. Add more discovery connectors (government datasets and licensed news/search APIs) and source health checks.
 4. Extend entity coverage and add provider-backed enrichment, vector embeddings, pgvector hybrid ranking, and index versioning.

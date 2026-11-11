@@ -22,6 +22,11 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
         working-directory: backend
+      - name: Verify clean database migration
+        run: alembic upgrade head
+        working-directory: backend
+        env:
+          DATABASE_URL: sqlite:///./migration-smoke.db
       - name: Run tests
         run: python -m unittest discover -s tests -v
         working-directory: backend
