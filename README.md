@@ -81,3 +81,5 @@ The dashboard entry point is at the repository root as `index.html`. Enable GitH
 ## Focused checks
 
 From `backend/`, run `python -m unittest discover -s tests -v` for extraction, cleaning, fingerprinting, classification, summary bounds, and retrieval ranking checks.
+
+The GitHub Actions workflow also installs the pinned requirements and runs the complete Python suite, including private API authentication, permissions, key revocation, document search, and root console delivery tests.
